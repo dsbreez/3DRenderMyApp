@@ -1,4 +1,4 @@
-# 3D Mockup Studio
+# 3D Mockup Video & Image Studio
 
 3D device mockups of your app, built entirely with free and
 open-source tools. Two ways to use it:
