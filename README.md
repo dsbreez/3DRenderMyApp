@@ -1,6 +1,6 @@
 # 3D Mockup Studio
 
-Rotato-style 3D device mockups of your app, built entirely with free and
+3D device mockups of your app, built entirely with free and
 open-source tools. Two ways to use it:
 
 1. **Interactive studio** — a single self-contained HTML file. Open it in any
@@ -72,6 +72,5 @@ kept as the default because it's compatible with every editor.
 
 MIT. Built on [Three.js](https://threejs.org) (MIT),
 [Playwright](https://playwright.dev) (Apache-2.0), [FFmpeg](https://ffmpeg.org)
-(LGPL/GPL), and Chromium (BSD). "Rotato" is a trademark of its respective
-owner; this project is not affiliated with it. The device model is an original
+(LGPL/GPL), and Chromium (BSD). The device model is an original
 stylized design, not an Apple asset.
