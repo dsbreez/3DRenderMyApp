@@ -1,0 +1,16 @@
+{
+  "name": "3d-mockup-studio",
+  "version": "1.0.0",
+  "description": "Rotato-style 3D device mockups: interactive browser studio + headless green-screen video renderer. Free and open source.",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "render": "node render.mjs"
+  },
+  "keywords": ["mockup", "3d", "device", "iphone", "green-screen", "chroma-key", "threejs", "rotato"],
+  "license": "MIT",
+  "dependencies": {
+    "playwright-core": "^1.45.0",
+    "three": "0.128.0"
+  }
+}

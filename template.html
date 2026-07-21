@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>3D App Mockup Studio</title>
+<style>
+  :root { --panel:#16181d; --ink:#e8eaed; --muted:#9aa0a6; --accent:#4f8cff; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; background:#0b0c0f; color:var(--ink); overflow:hidden; }
+  #canvas-wrap { position:fixed; inset:0; }
+  canvas { display:block; }
+  #panel { position:fixed; top:16px; left:16px; width:280px; background:rgba(22,24,29,.92); backdrop-filter:blur(12px); border:1px solid #2a2d34; border-radius:14px; padding:18px; z-index:10; max-height:calc(100vh - 32px); overflow-y:auto; }
+  #panel h1 { font-size:15px; font-weight:600; margin-bottom:2px; }
+  #panel .sub { font-size:11px; color:var(--muted); margin-bottom:14px; }
+  .group { margin-bottom:14px; }
+  .group label.title { display:block; font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin-bottom:6px; }
+  .row { display:flex; gap:6px; flex-wrap:wrap; }
+  button, .btn { background:#23262d; color:var(--ink); border:1px solid #2f333b; border-radius:8px; padding:7px 10px; font-size:12px; cursor:pointer; transition:background .15s; }
+  button:hover, .btn:hover { background:#2c3038; }
+  button.active { background:var(--accent); border-color:var(--accent); color:#fff; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; width:100%; padding:9px; font-weight:600; }
+  button.primary:hover { background:#3d7bf0; }
+  input[type=range] { width:100%; accent-color:var(--accent); }
+  input[type=color] { width:34px; height:28px; border:none; border-radius:6px; background:none; cursor:pointer; }
+  .val { font-size:11px; color:var(--muted); float:right; }
+  #drop { border:1.5px dashed #3a3f48; border-radius:10px; padding:14px 10px; text-align:center; font-size:12px; color:var(--muted); cursor:pointer; transition:border-color .15s; }
+  #drop:hover, #drop.over { border-color:var(--accent); color:var(--ink); }
+  #drop input { display:none; }
+  #hint { position:fixed; bottom:14px; left:50%; transform:translateX(-50%); font-size:11.5px; color:var(--muted); background:rgba(22,24,29,.8); padding:6px 14px; border-radius:20px; z-index:10; }
+  .headless #panel, .headless #hint { display:none; }
+</style>
+</head>
+<body>
+<div id="canvas-wrap"></div>
+<div id="panel">
+  <h1>3D App Mockup Studio</h1>
+  <div class="sub">Rotato-style mockups, self-hosted</div>
+
+  <div class="group">
+    <div id="drop">Drop your app screenshot here<br>or click to browse<input type="file" id="file" accept="image/*"></div>
+  </div>
+
+  <div class="group">
+    <label class="title">Background</label>
+    <div class="row">
+      <button data-bg="green" class="bgbtn active">Green screen</button>
+      <button data-bg="dark" class="bgbtn">Dark</button>
+      <button data-bg="light" class="bgbtn">Light</button>
+      <input type="color" id="bgcolor" value="#00ff00" title="Custom color">
+    </div>
+  </div>
+
+  <div class="group">
+    <label class="title">Animation</label>
+    <div class="row">
+      <button data-anim="spin" class="animbtn active">360° Spin</button>
+      <button data-anim="sway" class="animbtn">Sway</button>
+      <button data-anim="tumble" class="animbtn">Tumble</button>
+      <button data-anim="none" class="animbtn">Manual</button>
+    </div>
+  </div>
+
+  <div class="group">
+    <label class="title">Tilt <span class="val" id="tiltval">12°</span></label>
+    <input type="range" id="tilt" min="-45" max="45" value="12">
+  </div>
+  <div class="group">
+    <label class="title">Zoom <span class="val" id="zoomval">1.0×</span></label>
+    <input type="range" id="zoom" min="50" max="200" value="100">
+  </div>
+  <div class="group">
+    <label class="title">Speed <span class="val" id="speedval">6s / loop</span></label>
+    <input type="range" id="speed" min="2" max="15" value="6">
+  </div>
+
+  <div class="group">
+    <button class="primary" id="snap">Export PNG (2×)</button>
+  </div>
+  <div class="sub" style="margin-bottom:0">Drag on the canvas to rotate manually. For green-screen video, use the render script or ask Claude.</div>
+</div>
+<div id="hint">Drag to rotate · Scroll to zoom</div>
+
+<script>/*__THREE_JS__*/</script>
+<script>
+(function(){
+'use strict';
+const params = new URLSearchParams(location.search);
+const HEADLESS = params.get('headless') === '1';
+if (HEADLESS) document.body.classList.add('headless');
+
+// ---------- Renderer / scene ----------
+const W = HEADLESS ? parseInt(params.get('w')||'1920') : window.innerWidth;
+const H = HEADLESS ? parseInt(params.get('h')||'1080') : window.innerHeight;
+const renderer = new THREE.WebGLRenderer({ antialias:true, preserveDrawingBuffer:true });
+renderer.setPixelRatio(HEADLESS ? 1 : Math.min(window.devicePixelRatio, 2));
+renderer.setSize(W, H);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.getElementById('canvas-wrap').appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(30, W/H, 10, 2000);
+camera.position.set(0, 0, 420);
+
+// ---------- Lights ----------
+const hemi = new THREE.HemisphereLight(0xffffff, 0x444455, 0.9);
+scene.add(hemi);
+const key = new THREE.DirectionalLight(0xffffff, 0.85);
+key.position.set(160, 220, 260);
+scene.add(key);
+const rim = new THREE.DirectionalLight(0xbfd4ff, 0.55);
+rim.position.set(-220, 60, -180);
+scene.add(rim);
+const fill = new THREE.DirectionalLight(0xffffff, 0.25);
+fill.position.set(-80, -120, 200);
+scene.add(fill);
+
+// ---------- iPhone model (procedural, iPhone 15 Pro proportions) ----------
+const phone = new THREE.Group();
+scene.add(phone);
+
+const BW = 71.6, BH = 147.6, BD = 8.25, BR = 12.5; // body mm
+function roundedRectShape(w, h, r) {
+  const s = new THREE.Shape();
+  const x = -w/2, y = -h/2;
+  s.moveTo(x + r, y);
+  s.lineTo(x + w - r, y);
+  s.absarc(x + w - r, y + r, r, -Math.PI/2, 0);
+  s.lineTo(x + w, y + h - r);
+  s.absarc(x + w - r, y + h - r, r, 0, Math.PI/2);
+  s.lineTo(x + r, y + h);
+  s.absarc(x + r, y + h - r, r, Math.PI/2, Math.PI);
+  s.lineTo(x, y + r);
+  s.absarc(x + r, y + r, r, Math.PI, Math.PI*1.5);
+  return s;
+}
+
+// Body (titanium frame + back)
+const bodyGeo = new THREE.ExtrudeGeometry(roundedRectShape(BW, BH, BR), {
+  depth: BD - 2, bevelEnabled: true, bevelThickness: 1, bevelSize: 1, bevelSegments: 5, curveSegments: 24
+});
+bodyGeo.center();
+const bodyMat = new THREE.MeshStandardMaterial({ color: 0x48484f, metalness: 0.85, roughness: 0.35 });
+const body = new THREE.Mesh(bodyGeo, bodyMat);
+phone.add(body);
+
+// Screen (front) — rounded plane with normalized UVs
+function roundedPlaneGeo(w, h, r) {
+  const geo = new THREE.ShapeGeometry(roundedRectShape(w, h, r), 24);
+  const uv = geo.attributes.uv, pos = geo.attributes.position;
+  for (let i = 0; i < uv.count; i++) {
+    uv.setXY(i, (pos.getX(i) + w/2) / w, (pos.getY(i) + h/2) / h);
+  }
+  return geo;
+}
+const SW = 66.5, SH = 143.2, SR = 9.5;
+const screenCanvas = document.createElement('canvas');
+screenCanvas.width = 1179; screenCanvas.height = 2556;
+const sctx = screenCanvas.getContext('2d');
+drawPlaceholder(sctx, screenCanvas.width, screenCanvas.height);
+const screenTex = new THREE.CanvasTexture(screenCanvas);
+screenTex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+const screenMat = new THREE.MeshBasicMaterial({ map: screenTex });
+const screen = new THREE.Mesh(roundedPlaneGeo(SW, SH, SR), screenMat);
+screen.position.z = BD/2 + 0.45;
+phone.add(screen);
+
+// Screen bezel (black border behind screen glass)
+const bezel = new THREE.Mesh(
+  roundedPlaneGeo(BW - 2.2, BH - 2.2, BR - 1),
+  new THREE.MeshBasicMaterial({ color: 0x000000 })
+);
+bezel.position.z = BD/2 + 0.25;
+phone.add(bezel);
+
+// Dynamic Island
+const island = new THREE.Mesh(
+  roundedPlaneGeo(24, 7.5, 3.75),
+  new THREE.MeshBasicMaterial({ color: 0x050505 })
+);
+island.position.set(0, SH/2 - 10, BD/2 + 0.65);
+phone.add(island);
+
+// Back panel (matte glass)
+const back = new THREE.Mesh(
+  roundedPlaneGeo(BW - 1.6, BH - 1.6, BR - 0.8),
+  new THREE.MeshStandardMaterial({ color: 0x3b3b42, metalness: 0.3, roughness: 0.55 })
+);
+back.position.z = -BD/2 - 0.02;
+back.rotation.y = Math.PI;
+phone.add(back);
+
+// Camera plateau + lenses
+const plateau = new THREE.Mesh(
+  new THREE.ExtrudeGeometry(roundedRectShape(36, 37, 11), { depth: 2.2, bevelEnabled: true, bevelThickness: 0.6, bevelSize: 0.6, bevelSegments: 3, curveSegments: 16 }),
+  new THREE.MeshStandardMaterial({ color: 0x44444b, metalness: 0.7, roughness: 0.4 })
+);
+plateau.position.set(-(BW/2 - 20.5), BH/2 - 21, -BD/2 - 1.4);
+plateau.rotation.y = Math.PI;
+phone.add(plateau);
+const lensMat = new THREE.MeshPhysicalMaterial({ color: 0x0a0a12, metalness: 0.2, roughness: 0.15, clearcoat: 1 });
+const ringMat = new THREE.MeshStandardMaterial({ color: 0x62626a, metalness: 0.9, roughness: 0.3 });
+[[-8, 8], [-8, -8.5], [8, -0.2]].forEach(([dx, dy]) => {
+  const ring = new THREE.Mesh(new THREE.CylinderGeometry(7.2, 7.2, 2.6, 32), ringMat);
+  ring.rotation.x = Math.PI/2;
+  ring.position.set(-(BW/2 - 20.5) + dx, BH/2 - 21 + dy, -BD/2 - 3.2);
+  phone.add(ring);
+  const lens = new THREE.Mesh(new THREE.CylinderGeometry(5.2, 5.2, 2.8, 32), lensMat);
+  lens.rotation.x = Math.PI/2;
+  lens.position.set(-(BW/2 - 20.5) + dx, BH/2 - 21 + dy, -BD/2 - 3.4);
+  phone.add(lens);
+});
+
+// Side buttons
+const btnMat = new THREE.MeshStandardMaterial({ color: 0x4c4c53, metalness: 0.85, roughness: 0.35 });
+function sideBtn(x, y, len) {
+  const b = new THREE.Mesh(new THREE.BoxGeometry(1.6, len, 3.2), btnMat);
+  b.position.set(x, y, 0);
+  phone.add(b);
+}
+sideBtn(-(BW/2 + 0.7), 32, 9);   // action
+sideBtn(-(BW/2 + 0.7), 14, 12);  // vol up
+sideBtn(-(BW/2 + 0.7), 0, 12);   // vol down
+sideBtn(BW/2 + 0.7, 18, 18);     // power
+
+// ---------- Placeholder screen content ----------
+function drawPlaceholder(ctx, w, h) {
+  const g = ctx.createLinearGradient(0, 0, 0, h);
+  g.addColorStop(0, '#5b7cfa'); g.addColorStop(1, '#9b59f6');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = 'rgba(255,255,255,.95)';
+  ctx.font = `600 ${w*0.075}px -apple-system, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText('Your App Here', w/2, h*0.42);
+  ctx.font = `400 ${w*0.038}px -apple-system, sans-serif`;
+  ctx.fillStyle = 'rgba(255,255,255,.7)';
+  ctx.fillText('Drop a screenshot to replace', w/2, h*0.47);
+  ctx.fillStyle = 'rgba(255,255,255,.12)';
+  for (let i = 0; i < 3; i++) {
+    roundRectPath(ctx, w*0.08, h*(0.56 + i*0.11), w*0.84, h*0.085, w*0.03);
+    ctx.fill();
+  }
+}
+function roundRectPath(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x+r, y); ctx.arcTo(x+w, y, x+w, y+h, r); ctx.arcTo(x+w, y+h, x, y+h, r);
+  ctx.arcTo(x, y+h, x, y, r); ctx.arcTo(x, y, x+w, y, r); ctx.closePath();
+}
+
+// ---------- State ----------
+const state = {
+  bg: '#00ff00',
+  anim: 'spin',
+  tilt: 12,
+  zoom: 1.0,
+  duration: 6,
+  manualYaw: 0, manualPitch: 0,
+};
+function applyBg() { scene.background = new THREE.Color(state.bg); }
+applyBg();
+
+function loadScreenshot(url) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const c = screenCanvas, ctx = sctx;
+      // cover-fit the image into the screen canvas
+      const scale = Math.max(c.width / img.width, c.height / img.height);
+      const dw = img.width * scale, dh = img.height * scale;
+      ctx.fillStyle = '#000'; ctx.fillRect(0, 0, c.width, c.height);
+      ctx.drawImage(img, (c.width - dw)/2, (c.height - dh)/2, dw, dh);
+      screenTex.needsUpdate = true;
+      resolve();
+    };
+    img.onerror = reject;
+    img.src = url;
+  });
+}
+
+// ---------- Animation ----------
+function poseAt(t) { // t in [0,1) — one loop
+  const tiltRad = state.tilt * Math.PI/180;
+  let yaw = 0, pitch = tiltRad, roll = 0;
+  if (state.anim === 'spin') {
+    yaw = t * Math.PI * 2;
+  } else if (state.anim === 'sway') {
+    yaw = Math.sin(t * Math.PI * 2) * 0.5;
+    pitch = tiltRad + Math.sin(t * Math.PI * 4) * 0.06;
+  } else if (state.anim === 'tumble') {
+    yaw = t * Math.PI * 2;
+    pitch = tiltRad + Math.sin(t * Math.PI * 2) * 0.25;
+    roll = Math.sin(t * Math.PI * 2) * 0.12;
+  } else { // manual
+    yaw = state.manualYaw; pitch = state.manualPitch + tiltRad;
+  }
+  phone.rotation.set(pitch, yaw, roll);
+  camera.position.z = 420 / state.zoom;
+}
+
+// ---------- Headless API ----------
+window.MOCKUP = {
+  ready: false,
+  loadScreenshot,
+  configure(opts) { Object.assign(state, opts); applyBg(); },
+  setFrame(i, total) { poseAt(i / total); renderer.render(scene, camera); },
+};
+
+if (HEADLESS) {
+  if (params.get('bg')) state.bg = '#' + params.get('bg');
+  if (params.get('anim')) state.anim = params.get('anim');
+  if (params.get('tilt')) state.tilt = parseFloat(params.get('tilt'));
+  if (params.get('zoom')) state.zoom = parseFloat(params.get('zoom'));
+  applyBg();
+  renderer.render(scene, camera);
+  window.MOCKUP.ready = true;
+} else {
+  // ---------- Interactive loop ----------
+  let start = performance.now();
+  function tick(now) {
+    const t = ((now - start) / 1000 / state.duration) % 1;
+    poseAt(t);
+    renderer.render(scene, camera);
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+
+  // ---------- UI wiring ----------
+  const $ = id => document.getElementById(id);
+  document.querySelectorAll('.bgbtn').forEach(b => b.addEventListener('click', () => {
+    document.querySelectorAll('.bgbtn').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    state.bg = { green:'#00ff00', dark:'#111318', light:'#f2f3f5' }[b.dataset.bg];
+    $('bgcolor').value = state.bg;
+    applyBg();
+  }));
+  $('bgcolor').addEventListener('input', e => {
+    document.querySelectorAll('.bgbtn').forEach(x => x.classList.remove('active'));
+    state.bg = e.target.value; applyBg();
+  });
+  document.querySelectorAll('.animbtn').forEach(b => b.addEventListener('click', () => {
+    document.querySelectorAll('.animbtn').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    state.anim = b.dataset.anim;
+    start = performance.now();
+  }));
+  $('tilt').addEventListener('input', e => { state.tilt = +e.target.value; $('tiltval').textContent = e.target.value + '°'; });
+  $('zoom').addEventListener('input', e => { state.zoom = e.target.value/100; $('zoomval').textContent = (e.target.value/100).toFixed(1) + '×'; });
+  $('speed').addEventListener('input', e => { state.duration = +e.target.value; $('speedval').textContent = e.target.value + 's / loop'; });
+
+  // Drag to rotate
+  let dragging = false, px = 0, py = 0;
+  renderer.domElement.addEventListener('pointerdown', e => { dragging = true; px = e.clientX; py = e.clientY;
+    document.querySelectorAll('.animbtn').forEach(x => x.classList.toggle('active', x.dataset.anim === 'none'));
+    state.anim = 'none';
+  });
+  window.addEventListener('pointermove', e => {
+    if (!dragging) return;
+    state.manualYaw += (e.clientX - px) * 0.008;
+    state.manualPitch += (e.clientY - py) * 0.008;
+    state.manualPitch = Math.max(-1.2, Math.min(1.2, state.manualPitch));
+    px = e.clientX; py = e.clientY;
+  });
+  window.addEventListener('pointerup', () => dragging = false);
+  renderer.domElement.addEventListener('wheel', e => {
+    e.preventDefault();
+    state.zoom = Math.max(0.5, Math.min(2, state.zoom * (e.deltaY < 0 ? 1.06 : 0.94)));
+    $('zoom').value = state.zoom * 100;
+    $('zoomval').textContent = state.zoom.toFixed(1) + '×';
+  }, { passive:false });
+
+  // File drop
+  const drop = $('drop'), file = $('file');
+  drop.addEventListener('click', () => file.click());
+  file.addEventListener('change', () => file.files[0] && readFile(file.files[0]));
+  ['dragover','dragenter'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
+  ['dragleave','drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
+  drop.addEventListener('drop', e => e.dataTransfer.files[0] && readFile(e.dataTransfer.files[0]));
+  document.body.addEventListener('dragover', e => e.preventDefault());
+  document.body.addEventListener('drop', e => { e.preventDefault(); e.dataTransfer.files[0] && readFile(e.dataTransfer.files[0]); });
+  function readFile(f) {
+    const r = new FileReader();
+    r.onload = () => loadScreenshot(r.result);
+    r.readAsDataURL(f);
+  }
+
+  // PNG export at 2x
+  $('snap').addEventListener('click', () => {
+    const oldPR = renderer.getPixelRatio();
+    renderer.setPixelRatio(oldPR * 2);
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.render(scene, camera);
+    const a = document.createElement('a');
+    a.download = 'mockup.png';
+    a.href = renderer.domElement.toDataURL('image/png');
+    a.click();
+    renderer.setPixelRatio(oldPR);
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+}
+})();
+</script>
+</body>
+</html>
