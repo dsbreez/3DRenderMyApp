@@ -8,7 +8,7 @@ open-source tools. Two ways to use it:
 2. **Headless video renderer** — render seamless-looping green-screen MP4s
    (360° spins, sways, tumbles) ready to chroma-key into your video edits.
 
-![example frame](examples/example-frame.png)
+![example frame](example-frame.png)
 
 The phone is a procedural 3D model (modern-flagship proportions with rounded
 titanium-style frame, screen, camera plateau) built from Three.js primitives —
